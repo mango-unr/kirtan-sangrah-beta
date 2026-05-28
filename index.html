@@ -15,7 +15,16 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+
+    // ── Config ────────────────────────────────────────────────────────────────
     const FUNCTION_URL = "https://transliterate-3svfyhobeq-uc.a.run.app";
+    const SECRET_TOKEN = "vyg-kirtan-2026-xK9mP3qL";
+    const ADMIN_PASS = "pushtimarg2025";
+    const FIREBASE_PROJECT = "kirtan-sangrah";
+    const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
+    const DEFAULT_CATEGORIES = ["General", "Nandotsav", "Holi Rasiya", "Nitya Paath"];
+
+    // ── Colours ───────────────────────────────────────────────────────────────
     const PARCHMENT = "#fdf6e3";
     const TEAL = "#2e7d7a";
     const GOLD = "#b8860b";
@@ -25,22 +34,75 @@
     const CARD_BG = "#fffdf5";
     const ACCENT_BG = "#f5ede0";
 
-    const COMMUNITY_ENABLED = false;
+    // ── Firestore helpers ─────────────────────────────────────────────────────
+    function toFS(obj) {
+      const fields = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === "string") fields[k] = { stringValue: v };
+        else if (typeof v === "number") fields[k] = { integerValue: v };
+        else if (typeof v === "boolean") fields[k] = { booleanValue: v };
+        else if (Array.isArray(v)) fields[k] = { arrayValue: { values: v.map(i => ({ stringValue: i })) } };
+      }
+      return { fields };
+    }
 
-    const ornament = React.createElement("div", {
-      style: { textAlign: "center", color: GOLD, fontSize: 18, letterSpacing: 6, margin: "4px 0" }
-    }, "❧ ✦ ❧");
+    function fromFS(doc) {
+      const obj = { id: doc.name.split("/").pop() };
+      for (const [k, v] of Object.entries(doc.fields || {})) {
+        if (v.stringValue !== undefined) obj[k] = v.stringValue;
+        else if (v.integerValue !== undefined) obj[k] = Number(v.integerValue);
+        else if (v.booleanValue !== undefined) obj[k] = v.booleanValue;
+        else if (v.arrayValue) obj[k] = (v.arrayValue.values || []).map(i => i.stringValue || "");
+      }
+      return obj;
+    }
 
+    async function fsGet(col) {
+      const r = await fetch(`${FIRESTORE_BASE}/${col}`);
+      if (!r.ok) throw new Error(`Firestore ${r.status}`);
+      const d = await r.json();
+      return (d.documents || []).map(fromFS);
+    }
+
+    async function fsAdd(col, obj) {
+      const r = await fetch(`${FIRESTORE_BASE}/${col}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toFS(obj))
+      });
+      if (!r.ok) throw new Error(`Firestore ${r.status}`);
+      return fromFS(await r.json());
+    }
+
+    async function fsUpdate(col, id, obj) {
+      const mask = Object.keys(obj).join(",");
+      const r = await fetch(`${FIRESTORE_BASE}/${col}/${id}?updateMask.fieldPaths=${mask}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toFS(obj))
+      });
+      if (!r.ok) throw new Error(`Firestore ${r.status}`);
+      return fromFS(await r.json());
+    }
+
+    async function fsDelete(col, id) {
+      const r = await fetch(`${FIRESTORE_BASE}/${col}/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error(`Firestore ${r.status}`);
+    }
+
+    // ── Styles ────────────────────────────────────────────────────────────────
     const s = {
       app: { minHeight: "100vh", background: PARCHMENT, fontFamily: "'Georgia', serif", color: DARK },
       nav: { background: CARD_BG, borderBottom: `1px solid ${BORDER}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
       card: { background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 22px", marginBottom: 14 },
       btn: (v = "primary") => ({ background: v === "primary" ? TEAL : "transparent", color: v === "ghost" ? TEAL : "#fff", border: v === "ghost" ? `1px solid ${TEAL}` : "none", borderRadius: 8, padding: "10px 20px", fontFamily: "Georgia,serif", fontSize: 14, cursor: "pointer", fontWeight: 600 }),
-      tag: { display: "inline-block", fontSize: 11, background: "#e8f5f2", color: TEAL, borderRadius: 20, padding: "2px 10px", marginRight: 6 },
+      tag: (c = TEAL) => ({ display: "inline-block", fontSize: 11, background: c === GOLD ? "#fff8e0" : "#e8f5f2", color: c, borderRadius: 20, padding: "2px 10px", marginRight: 6 }),
       input: { width: "100%", padding: "9px 12px", fontFamily: "Georgia,serif", fontSize: 14, border: `1px solid ${BORDER}`, borderRadius: 8, background: ACCENT_BG, color: DARK, boxSizing: "border-box" },
+      select: { width: "100%", padding: "9px 12px", fontFamily: "Georgia,serif", fontSize: 14, border: `1px solid ${BORDER}`, borderRadius: 8, background: ACCENT_BG, color: DARK, boxSizing: "border-box" },
       textarea: { width: "100%", padding: "12px", fontFamily: "Georgia,serif", fontSize: 14, border: `1px solid ${BORDER}`, borderRadius: 8, background: ACCENT_BG, color: DARK, lineHeight: 1.9, boxSizing: "border-box", minHeight: 260 },
     };
 
+    const ornament = React.createElement("div", { style: { textAlign: "center", color: GOLD, fontSize: 18, letterSpacing: 6, margin: "4px 0" } }, "❧ ✦ ❧");
+
+    // ── ProgressBar ───────────────────────────────────────────────────────────
     function ProgressBar({ active }) {
       const [pct, setPct] = React.useState(0);
       React.useEffect(() => {
@@ -51,13 +113,17 @@
           setTimeout(() => setPct(55), 2500),
           setTimeout(() => setPct(75), 5000),
           setTimeout(() => setPct(88), 8000),
+          setTimeout(() => setPct(92), 12000),
+          setTimeout(() => setPct(95), 18000),
+          setTimeout(() => setPct(98), 25000),
         ];
         return () => ts.forEach(clearTimeout);
       }, [active]);
       if (!active && pct === 0) return null;
+      const label = pct < 55 ? "Reading the kirtan..." : pct < 88 ? "Transliterating..." : "Almost there, finalising...";
       return React.createElement("div", { style: { margin: "16px 0 8px" } },
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, color: MUTED, marginBottom: 6 } },
-          React.createElement("span", null, "Reading & transliterating kirtan..."),
+          React.createElement("span", null, label),
           React.createElement("span", null, `${pct}%`)
         ),
         React.createElement("div", { style: { background: BORDER, borderRadius: 99, height: 6, overflow: "hidden" } },
@@ -66,6 +132,7 @@
       );
     }
 
+    // ── FileButton ────────────────────────────────────────────────────────────
     function FileButton({ label, accept, capture, onFile }) {
       const uid = "fb_" + Math.random().toString(36).slice(2);
       return React.createElement("label", {
@@ -73,14 +140,11 @@
         style: { ...s.btn(capture ? "ghost" : "primary"), display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", userSelect: "none" }
       },
         label,
-        React.createElement("input", {
-          id: uid, type: "file", accept, capture: capture || undefined,
-          style: { display: "none" },
-          onChange: e => { const f = e.target.files[0]; if (f) onFile(f); e.target.value = ""; }
-        })
+        React.createElement("input", { id: uid, type: "file", accept, capture: capture || undefined, style: { display: "none" }, onChange: e => { const f = e.target.files[0]; if (f) onFile(f); e.target.value = ""; } })
       );
     }
 
+    // ── Image resize ──────────────────────────────────────────────────────────
     function resizeImage(file, maxPx = 1200, quality = 0.85) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -90,15 +154,11 @@
           img.onerror = () => reject(new Error("Image decode failed"));
           img.onload = () => {
             const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-            const w = Math.round(img.width * scale);
-            const h = Math.round(img.height * scale);
             const canvas = document.createElement("canvas");
-            canvas.width = w; canvas.height = h;
-            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-            canvas.toBlob(
-              blob => blob ? resolve(blob) : reject(new Error("Canvas export failed")),
-              "image/jpeg", quality
-            );
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Canvas export failed")), "image/jpeg", quality);
           };
           img.src = e.target.result;
         };
@@ -106,34 +166,67 @@
       });
     }
 
+    // ── Share ─────────────────────────────────────────────────────────────────
     async function shareKirtan(title, text) {
       const shareText = `*${title}*\n\n${text}\n\n_Shared via Kirtan Sangrah — Vaishnav Youth Group UK_`;
-      if (navigator.share) {
-        try { await navigator.share({ title, text: shareText }); return; } catch (_) {}
-      }
+      if (navigator.share) { try { await navigator.share({ title, text: shareText }); return; } catch (_) {} }
       window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank");
     }
 
+    // ── App ───────────────────────────────────────────────────────────────────
     function App() {
       const [view, setView] = React.useState("home");
+      const [library, setLibrary] = React.useState([]);
+      const [categories, setCategories] = React.useState(DEFAULT_CATEGORIES);
+      const [libStatus, setLibStatus] = React.useState("loading");
       const [scanning, setScanning] = React.useState(false);
       const [scanResult, setScanResult] = React.useState(null);
       const [editableText, setEditableText] = React.useState("");
+      const [selectedCategory, setSelectedCategory] = React.useState("General");
       const [uploadedImage, setUploadedImage] = React.useState(null);
       const [scanError, setScanError] = React.useState("");
+      const [matchFound, setMatchFound] = React.useState(null);
+      const [selectedKirtan, setSelectedKirtan] = React.useState(null);
+      const [searchQ, setSearchQ] = React.useState("");
+      const [filterCat, setFilterCat] = React.useState("All");
+      const [flagNote, setFlagNote] = React.useState("");
+      const [flagging, setFlagging] = React.useState(false);
+      const [contributorName, setContributorName] = React.useState("");
+      const [addedSuccess, setAddedSuccess] = React.useState(false);
+      const [saving, setSaving] = React.useState(false);
+      const [saveError, setSaveError] = React.useState("");
       const [shared, setShared] = React.useState(false);
+      const [adminMode, setAdminMode] = React.useState(false);
+      const [adminPass, setAdminPass] = React.useState("");
+      const [adminError, setAdminError] = React.useState("");
+      const [newCategory, setNewCategory] = React.useState("");
+      const [editingKirtan, setEditingKirtan] = React.useState(null);
+
+      React.useEffect(() => { loadLibrary(); }, []);
+
+      async function loadLibrary() {
+        setLibStatus("loading");
+        try {
+          const [kirtans, cats] = await Promise.all([fsGet("kirtans"), fsGet("categories").catch(() => [])]);
+          setLibrary(kirtans);
+          if (cats.length > 0) setCategories(cats.map(c => c.name));
+          else { for (const name of DEFAULT_CATEGORIES) await fsAdd("categories", { name }); }
+          setLibStatus("ready");
+        } catch (e) { console.error(e); setLibStatus("error"); }
+      }
+
+      function parsedFlags(k) { return k.flags ? k.flags.split("||").filter(f => f) : []; }
+
+      function checkForMatch(title) {
+        const t = title.toLowerCase().slice(0, 10);
+        return library.find(k => k.title && (k.title.toLowerCase().includes(t) || t.includes(k.title.toLowerCase().slice(0, 10))));
+      }
 
       async function handleFile(file) {
-        const previewReader = new FileReader();
-        previewReader.onload = e => setUploadedImage(e.target.result);
-        previewReader.readAsDataURL(file);
-
-        setScanning(true);
-        setScanResult(null);
-        setScanError("");
-        setShared(false);
-        setView("scan");
-
+        const pr = new FileReader();
+        pr.onload = e => setUploadedImage(e.target.result);
+        pr.readAsDataURL(file);
+        setScanning(true); setScanResult(null); setScanError(""); setShared(false); setMatchFound(null); setView("scan");
         try {
           const resized = await resizeImage(file);
           const base64 = await new Promise((res, rej) => {
@@ -142,48 +235,121 @@
             r.onerror = () => rej(new Error("File read failed"));
             r.readAsDataURL(resized);
           });
-
           const response = await fetch(FUNCTION_URL, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-kirtan-token": "vyg-kirtan-2026-xK9mP3qL",
-            },
-            
+            headers: { "Content-Type": "application/json", "x-kirtan-token": SECRET_TOKEN },
             body: JSON.stringify({
               model: "claude-sonnet-4-6",
               max_tokens: 1500,
-              messages: [{
-                role: "user",
-                content: [
-                  { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
-                  { type: "text", text: `You are a Pushtimarg kirtan scholar. This image contains a kirtan or pad written in Gujarati or Hindi script.\n\nPlease:\n1. Identify the title (first line or heading)\n2. Transliterate the ENTIRE kirtan into English Roman script, preserving:\n   - Each verse clearly labelled (Verse 1, Verse 2 or Mukhda / Antara)\n   - Each line break exactly as in the original\n   - Refrain/chorus structure if present\n3. Use consistent ISKCON-style transliteration (aa, ii, uu, sh, etc.)\n4. Cross-check known Pushtimarg kirtans for accuracy where possible\n\nRespond ONLY in this JSON format with no markdown or backticks:\n{"title":"English title","original_script_title":"Title in original script","language":"Gujarati or Hindi","transliteration":"Full transliteration with verse labels and line breaks"}` }
-                ]
-              }]
+              messages: [{ role: "user", content: [
+                { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
+                { type: "text", text: `You are a Pushtimarg kirtan scholar. This image contains a kirtan or pad written in Gujarati or Hindi script.\n\nPlease:\n1. Identify the title (first line or heading)\n2. Transliterate the ENTIRE kirtan into English Roman script, preserving:\n   - Each verse clearly labelled (Verse 1, Verse 2 or Mukhda / Antara)\n   - Each line break exactly as in the original\n   - Refrain/chorus structure if present\n3. Use consistent ISKCON-style transliteration (aa, ii, uu, sh, etc.)\n4. Cross-check known Pushtimarg kirtans for accuracy where possible\n\nRespond ONLY in this JSON format with no markdown or backticks:\n{"title":"English title","original_script_title":"Title in original script","language":"Gujarati or Hindi","transliteration":"Full transliteration with verse labels and line breaks"}` }
+              ]}]
             })
           });
-
           if (!response.ok) throw new Error(`API error ${response.status}`);
           const data = await response.json();
-          if (!data.content?.length) throw new Error("Empty API response");
+          if (!data.content || !data.content.length) throw new Error("Empty API response");
           const text = data.content.map(i => i.text || "").join("");
           const clean = text.replace(/```json|```/g, "").trim();
           let parsed;
           try { parsed = JSON.parse(clean); } catch { throw new Error("Could not parse response"); }
-          setScanResult(parsed);
-          setEditableText(parsed.transliteration || "");
-          setView("review");
-        } catch (err) {
-          console.error("Scan error:", err);
-          setScanError(err.message || "Unknown error");
-          setView("review");
-        }
+          const existing = checkForMatch(parsed.title);
+          if (existing) {
+            setMatchFound(existing);
+            setSelectedKirtan(existing);
+            setScanning(false);
+            setView("scan");
+            setTimeout(() => setView("kirtan"), 4000);
+            return;
+          }
+          setScanResult(parsed); setEditableText(parsed.transliteration || ""); setView("review");
+        } catch (err) { console.error("Scan error:", err); setScanError(err.message || "Unknown error"); setView("review"); }
         setScanning(false);
       }
 
-      function goScan() { setScanResult(null); setScanError(""); setUploadedImage(null); setShared(false); setView("scan"); }
+      async function handleAddToLibrary() {
+        if (!scanResult || !editableText.trim()) return;
+        setSaving(true); setSaveError("");
+        try {
+          const entry = {
+            title: scanResult.title || "Untitled Kirtan",
+            original: scanResult.original_script_title || "",
+            transliteration: editableText,
+            contributor: contributorName.trim() || "Anonymous",
+            date: new Date().toISOString().slice(0, 10),
+            flags: "",
+            language: scanResult.language || "Gujarati",
+            category: selectedCategory
+          };
+          const saved = await fsAdd("kirtans", entry);
+          setLibrary(prev => [...prev, saved]);
+          setAddedSuccess(true);
+          setTimeout(() => { setSelectedKirtan(saved); setView("kirtan"); setAddedSuccess(false); }, 1600);
+        } catch (e) { setSaveError("Could not save to library. Please try again."); }
+        setSaving(false);
+      }
 
-      const navActive = v => view === v || (view === "scan" && v === "scan") || (view === "review" && v === "scan");
+      async function handleFlag() {
+        if (!flagNote.trim() || !selectedKirtan) return;
+        setSaving(true);
+        try {
+          const existing = selectedKirtan.flags ? selectedKirtan.flags.split("||") : [];
+          const updated = [...existing.filter(f => f), flagNote].join("||");
+          await fsUpdate("kirtans", selectedKirtan.id, { flags: updated });
+          const upd = { ...selectedKirtan, flags: updated };
+          setSelectedKirtan(upd);
+          setLibrary(prev => prev.map(k => k.id === selectedKirtan.id ? upd : k));
+          setFlagNote(""); setFlagging(false);
+        } catch (e) { setSaveError("Could not submit flag."); }
+        setSaving(false);
+      }
+
+      async function dismissFlag(kirtan, idx) {
+        const flags = parsedFlags(kirtan);
+        const updated = flags.filter((_, i) => i !== idx).join("||");
+        await fsUpdate("kirtans", kirtan.id, { flags: updated });
+        const upd = { ...kirtan, flags: updated };
+        setLibrary(prev => prev.map(k => k.id === kirtan.id ? upd : k));
+        if (selectedKirtan && selectedKirtan.id === kirtan.id) setSelectedKirtan(upd);
+      }
+
+      async function removeKirtan(id) {
+        await fsDelete("kirtans", id);
+        setLibrary(prev => prev.filter(k => k.id !== id));
+        setView("library"); setSelectedKirtan(null);
+      }
+
+      async function saveEditedKirtan() {
+        if (!editingKirtan) return;
+        setSaving(true);
+        try {
+          await fsUpdate("kirtans", editingKirtan.id, {
+            title: editingKirtan.title,
+            transliteration: editingKirtan.transliteration,
+            category: editingKirtan.category
+          });
+          setLibrary(prev => prev.map(k => k.id === editingKirtan.id ? { ...k, ...editingKirtan } : k));
+          setEditingKirtan(null);
+        } catch (e) { setSaveError("Could not save edits. Please try again."); }
+        setSaving(false);
+      }
+
+      async function addCategory() {
+        if (!newCategory.trim()) return;
+        await fsAdd("categories", { name: newCategory.trim() });
+        setCategories(prev => [...prev, newCategory.trim()]);
+        setNewCategory("");
+      }
+
+      function goScan() { setScanResult(null); setScanError(""); setUploadedImage(null); setShared(false); setMatchFound(null); setView("scan"); }
+      function goNav(v) { setView(v); setScanResult(null); setMatchFound(null); setSelectedKirtan(null); setUploadedImage(null); setSaveError(""); }
+      const navActive = v => view === v || (view === "scan" && v === "scan") || (view === "review" && v === "scan") || (view === "kirtan" && v === "library");
+      const filtered = library.filter(k => {
+        const matchSearch = !searchQ || (k.title || "").toLowerCase().includes(searchQ.toLowerCase()) || (k.transliteration || "").toLowerCase().includes(searchQ.toLowerCase());
+        const matchCat = filterCat === "All" || k.category === filterCat;
+        return matchSearch && matchCat;
+      });
 
       return React.createElement("div", { style: s.app },
 
@@ -193,8 +359,11 @@
             React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: TEAL } }, "🪷 Vaishnav Youth Group")
           ),
           React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center" } },
-            React.createElement("button", { style: { background: "none", border: "none", color: navActive("home") ? TEAL : MUTED, fontFamily: "Georgia,serif", fontSize: 13, cursor: "pointer", fontWeight: navActive("home") ? 700 : 400, borderBottom: navActive("home") ? `2px solid ${TEAL}` : "none", paddingBottom: 2 }, onClick: () => setView("home") }, "Home"),
-            React.createElement("button", { style: { background: "none", border: "none", color: navActive("scan") ? TEAL : MUTED, fontFamily: "Georgia,serif", fontSize: 13, cursor: "pointer", fontWeight: navActive("scan") ? 700 : 400, borderBottom: navActive("scan") ? `2px solid ${TEAL}` : "none", paddingBottom: 2 }, onClick: goScan }, "Scan Kirtan")
+            ["home", "scan", "library", "admin"].map(v =>
+              React.createElement("button", { key: v, style: { background: "none", border: "none", color: navActive(v) ? TEAL : MUTED, fontFamily: "Georgia,serif", fontSize: 13, cursor: "pointer", fontWeight: navActive(v) ? 700 : 400, borderBottom: navActive(v) ? `2px solid ${TEAL}` : "none", paddingBottom: 2 }, onClick: () => goNav(v) },
+                v === "home" ? "Home" : v === "scan" ? "Scan Kirtan" : v === "library" ? "Library" : "Admin"
+              )
+            )
           )
         ),
 
@@ -211,25 +380,21 @@
             React.createElement("p", { style: { fontSize: 15, color: MUTED, lineHeight: 1.8, marginTop: 12, marginBottom: 28 } },
               "A living community library of Pushtimarg kirtans and pads — transliterated from Gujarati and Hindi into English script, built together by the community."
             ),
-            React.createElement("button", { style: { ...s.btn("primary"), fontSize: 16, padding: "14px 36px" }, onClick: goScan }, "📷 Scan a Kirtan"),
-            React.createElement("div", { style: { marginTop: 28 } },
-              ornament,
-              React.createElement("div", { style: { marginTop: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 12, textAlign: "center" } },
-                [
-                  { icon: "🔤", title: "Transliterate", desc: "Gujarati & Hindi into English script" },
-                  { icon: "✏️", title: "Edit & Correct", desc: "Adjust before saving or sharing" },
-                  { icon: "💬", title: "Share", desc: "Send via WhatsApp or any app" },
-                ].map(f => React.createElement("div", { key: f.title, style: s.card },
-                  React.createElement("div", { style: { fontSize: 24, marginBottom: 6 } }, f.icon),
-                  React.createElement("div", { style: { fontWeight: 700, color: TEAL, fontSize: 13, marginBottom: 4 } }, f.title),
-                  React.createElement("div", { style: { fontSize: 12, color: MUTED } }, f.desc)
-                ))
-              ),
-              React.createElement("div", { style: { ...s.card, marginTop: 12, background: ACCENT_BG, textAlign: "center" } },
-                React.createElement("div", { style: { fontSize: 20, marginBottom: 6 } }, "🌐"),
-                React.createElement("div", { style: { fontWeight: 700, color: GOLD, fontSize: 13, marginBottom: 4 } }, "Community Library — Coming Soon"),
-                React.createElement("div", { style: { fontSize: 12, color: MUTED } }, "A shared searchable library of kirtans contributed by the sangha — launching soon.")
-              )
+            React.createElement("div", { style: { display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginBottom: 28 } },
+              React.createElement("button", { style: { ...s.btn("primary"), fontSize: 16, padding: "14px 36px" }, onClick: goScan }, "📷 Scan a Kirtan"),
+              React.createElement("button", { style: { ...s.btn("primary"), fontSize: 16, padding: "14px 36px" }, onClick: () => setView("library") }, "📖 Community Library")
+            ),
+            ornament,
+            React.createElement("div", { style: { marginTop: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 12, textAlign: "center" } },
+              [
+                { icon: "🔤", title: "Transliterate", desc: "Photograph any kirtan page and get an instant English transliteration" },
+                { icon: "✏️", title: "Edit & Correct", desc: "Review and adjust before saving or sharing with the sangha" },
+                { icon: "💬", title: "Share", desc: "Send the transliteration via WhatsApp or any app instantly" },
+              ].map(f => React.createElement("div", { key: f.title, style: s.card },
+                React.createElement("div", { style: { fontSize: 24, marginBottom: 6 } }, f.icon),
+                React.createElement("div", { style: { fontWeight: 700, color: TEAL, fontSize: 13, marginBottom: 4 } }, f.title),
+                React.createElement("div", { style: { fontSize: 12, color: MUTED } }, f.desc)
+              ))
             )
           )
         ),
@@ -237,7 +402,11 @@
         // SCAN
         view === "scan" && React.createElement("div", { style: { maxWidth: 580, margin: "0 auto", padding: "26px 16px" } },
           React.createElement("h2", { style: { color: TEAL, marginBottom: 4 } }, "Scan a Kirtan"),
-          React.createElement("p", { style: { color: MUTED, fontSize: 14, marginBottom: 18 } }, "Upload a photo from your gallery or take one now. Works with Gujarati and Hindi scripts."),
+          React.createElement("p", { style: { color: MUTED, fontSize: 14, marginBottom: 18 } }, "Upload a photo or take one. We'll check the library first — if this kirtan already exists, we'll take you straight to it."),
+          matchFound && React.createElement("div", { style: { ...s.card, borderColor: TEAL, background: "#e8f5f2", marginBottom: 14 } },
+            React.createElement("div", { style: { color: TEAL, fontWeight: 700, marginBottom: 4 } }, "✓ Already in the library!"),
+            React.createElement("div", { style: { color: DARK, fontSize: 14 } }, `"${matchFound.title}" is already in the Kirtan Sangrah — taking you there now.`)
+          ),
           React.createElement("div", { style: s.card },
             React.createElement("div", { style: { border: `2px dashed ${BORDER}`, borderRadius: 12, padding: "28px 16px", textAlign: "center", background: ACCENT_BG, marginBottom: 16 } },
               uploadedImage
@@ -262,39 +431,216 @@
             ? React.createElement("div", { style: s.card },
                 React.createElement("div", { style: { color: "#c62828", fontWeight: 600, marginBottom: 6 } }, "Scan failed"),
                 React.createElement("div", { style: { color: MUTED, fontSize: 14, marginBottom: 14 } }, scanError),
-                React.createElement("button", { style: s.btn("ghost"), onClick: goScan }, "Try Again")
+                React.createElement("button", { style: s.btn("ghost"), onClick: () => { setScanError(""); setUploadedImage(null); setView("scan"); } }, "Try Again")
               )
             : scanResult
               ? React.createElement("div", null,
                   React.createElement("div", { style: { marginBottom: 14 } },
                     React.createElement("h2", { style: { color: TEAL, margin: "0 0 2px" } }, scanResult.title),
                     scanResult.original_script_title && React.createElement("div", { style: { color: GOLD, fontSize: 15, marginBottom: 6 } }, scanResult.original_script_title),
-                    React.createElement("span", { style: s.tag }, scanResult.language)
+                    React.createElement("span", { style: s.tag() }, scanResult.language)
                   ),
                   ornament,
-                  React.createElement("p", { style: { color: MUTED, fontSize: 14, margin: "12px 0 10px" } }, "Review and correct the transliteration if needed, then share."),
+                  React.createElement("p", { style: { color: MUTED, fontSize: 14, margin: "12px 0 10px" } }, "Review and correct the transliteration if needed, then share or add to the community library."),
                   React.createElement("textarea", { style: s.textarea, value: editableText, onChange: e => setEditableText(e.target.value) }),
+
+                  // SHARE
                   React.createElement("div", { style: { ...s.card, marginTop: 14, background: ACCENT_BG } },
                     React.createElement("div", { style: { fontWeight: 600, color: TEAL, marginBottom: 12 } }, "Share this kirtan"),
                     React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
-                      React.createElement("button", {
-                        style: { ...s.btn("primary"), display: "flex", alignItems: "center", gap: 8 },
-                        onClick: async () => { await shareKirtan(scanResult.title, editableText); setShared(true); }
-                      }, "💬 Share via WhatsApp"),
+                      React.createElement("button", { style: { ...s.btn("primary") }, onClick: async () => { await shareKirtan(scanResult.title, editableText); setShared(true); } }, "💬 Share via WhatsApp"),
                       React.createElement("button", { style: s.btn("ghost"), onClick: goScan }, "Scan Another")
                     ),
                     shared && React.createElement("div", { style: { color: TEAL, fontSize: 13, marginTop: 10 } }, "✓ Shared!")
                   ),
-                  React.createElement("div", { style: { ...s.card, marginTop: 14, background: ACCENT_BG, textAlign: "center" } },
-                    React.createElement("div", { style: { fontSize: 16, marginBottom: 4 } }, "🌐"),
-                    React.createElement("div", { style: { fontWeight: 700, color: GOLD, fontSize: 13, marginBottom: 4 } }, "Community Library — Coming Soon"),
-                    React.createElement("div", { style: { fontSize: 12, color: MUTED } }, "Soon you'll be able to save this kirtan to a shared library for the whole sangha.")
+
+                  // ADD TO LIBRARY
+                  React.createElement("div", { style: { ...s.card, marginTop: 14, background: ACCENT_BG } },
+                    React.createElement("div", { style: { fontWeight: 600, color: TEAL, marginBottom: 12 } }, "Add to community library?"),
+                    React.createElement("div", { style: { marginBottom: 10 } },
+                      React.createElement("label", { style: { fontSize: 13, color: MUTED, display: "block", marginBottom: 4 } }, "Category"),
+                      React.createElement("select", { style: s.select, value: selectedCategory, onChange: e => setSelectedCategory(e.target.value) },
+                        categories.map(c => React.createElement("option", { key: c, value: c }, c))
+                      )
+                    ),
+                    React.createElement("input", { style: { ...s.input, marginBottom: 12 }, placeholder: "Your name (optional)", value: contributorName, onChange: e => setContributorName(e.target.value) }),
+                    saveError && React.createElement("div", { style: { color: "#c62828", fontSize: 13, marginBottom: 10 } }, saveError),
+                    React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
+                      React.createElement("button", { style: s.btn("primary"), onClick: handleAddToLibrary, disabled: addedSuccess || saving },
+                        saving ? "Saving..." : addedSuccess ? "✓ Added!" : "Add to Library"
+                      ),
+                      React.createElement("button", { style: s.btn("ghost"), onClick: () => setView("home") }, "No, thanks")
+                    )
                   )
                 )
               : React.createElement("div", { style: { color: MUTED, textAlign: "center", padding: "40px 0" } },
                   "No result yet. ",
                   React.createElement("button", { style: { ...s.btn("ghost"), marginLeft: 8 }, onClick: goScan }, "Go back")
                 )
+        ),
+
+        // LIBRARY
+        view === "library" && !selectedKirtan && React.createElement("div", { style: { maxWidth: 700, margin: "0 auto", padding: "26px 16px" } },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
+            React.createElement("h2", { style: { color: TEAL, margin: 0 } }, "Kirtan Library"),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+              libStatus === "error" && React.createElement("button", { style: { fontSize: 12, color: TEAL, background: "none", border: "none", cursor: "pointer" }, onClick: loadLibrary }, "↺ Retry"),
+              React.createElement("span", { style: { color: MUTED, fontSize: 13 } }, libStatus === "ready" ? `${library.length} kirtan${library.length !== 1 ? "s" : ""}` : libStatus === "loading" ? "Loading..." : "Could not load")
+            )
+          ),
+          libStatus === "error" && React.createElement("div", { style: { ...s.card, borderColor: "#e57373", background: "#fff5f5", marginBottom: 14 } },
+            React.createElement("div", { style: { color: "#c62828", fontSize: 14 } }, "Could not connect to library. Please check your connection and tap Retry.")
+          ),
+          React.createElement("input", { style: { ...s.input, marginBottom: 10 }, placeholder: "Search by title or text...", value: searchQ, onChange: e => setSearchQ(e.target.value) }),
+          React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" } },
+            ["All", ...categories].map(c =>
+              React.createElement("button", { key: c, onClick: () => setFilterCat(c), style: { ...s.btn(filterCat === c ? "primary" : "ghost"), padding: "5px 14px", fontSize: 12 } }, c)
+            )
+          ),
+          libStatus === "ready" && filtered.length === 0 && React.createElement("div", { style: { color: MUTED, textAlign: "center", padding: "40px 0" } },
+            searchQ || filterCat !== "All" ? "No kirtans match your search." : "The library is empty — be the first to add a kirtan!"
+          ),
+          filtered.map(k =>
+            React.createElement("div", { key: k.id, style: { ...s.card, cursor: "pointer" }, onClick: () => { setSelectedKirtan(k); setView("kirtan"); } },
+              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 } },
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                  React.createElement("div", { style: { fontWeight: 700, color: TEAL, fontSize: 15 } }, k.title),
+                  k.original && React.createElement("div", { style: { color: GOLD, fontSize: 13 } }, k.original),
+                  React.createElement("div", { style: { marginTop: 6 } },
+                    React.createElement("span", { style: s.tag() }, k.language),
+                    k.category && React.createElement("span", { style: s.tag(GOLD) }, k.category),
+                    parsedFlags(k).length > 0 && React.createElement("span", { style: { ...s.tag(), background: "#fff4e0", color: "#8b5e00" } }, `⚑ ${parsedFlags(k).length}`)
+                  ),
+                  React.createElement("div", { style: { color: MUTED, fontSize: 13, marginTop: 6, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } }, (k.transliteration || "").slice(0, 90) + "...")
+                ),
+                React.createElement("div", { style: { textAlign: "right", fontSize: 11, color: MUTED, flexShrink: 0 } },
+                  React.createElement("div", null, k.contributor),
+                  React.createElement("div", null, k.date)
+                )
+              )
+            )
+          )
+        ),
+
+        // KIRTAN VIEW
+        view === "kirtan" && selectedKirtan && React.createElement("div", { style: { maxWidth: 660, margin: "0 auto", padding: "26px 16px" } },
+          React.createElement("button", { style: { ...s.btn("ghost"), marginBottom: 14, fontSize: 13 }, onClick: () => { setSelectedKirtan(null); setView("library"); } }, "← Back to Library"),
+          React.createElement("div", { style: s.card },
+            React.createElement("h2", { style: { color: TEAL, margin: "0 0 2px" } }, selectedKirtan.title),
+            selectedKirtan.original && React.createElement("div", { style: { color: GOLD, fontSize: 15, marginBottom: 6 } }, selectedKirtan.original),
+            React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14, alignItems: "center", flexWrap: "wrap" } },
+              React.createElement("span", { style: s.tag() }, selectedKirtan.language),
+              selectedKirtan.category && React.createElement("span", { style: s.tag(GOLD) }, selectedKirtan.category),
+              React.createElement("span", { style: { fontSize: 12, color: MUTED } }, `Contributed by ${selectedKirtan.contributor} · ${selectedKirtan.date}`)
+            ),
+            ornament,
+            React.createElement("div", { style: { whiteSpace: "pre-wrap", lineHeight: 2.1, fontSize: 15, color: DARK, background: ACCENT_BG, borderRadius: 8, padding: "16px 20px", border: `1px solid ${BORDER}`, marginTop: 14 } }, selectedKirtan.transliteration),
+            parsedFlags(selectedKirtan).length > 0 && React.createElement("div", { style: { marginTop: 14, padding: "12px 16px", background: "#fff8e8", borderRadius: 8, border: `1px solid #f0d080` } },
+              React.createElement("div", { style: { color: "#8b5e00", fontWeight: 600, fontSize: 13, marginBottom: 6 } }, "Community flags"),
+              parsedFlags(selectedKirtan).map((f, i) => React.createElement("div", { key: i, style: { fontSize: 13, color: "#6b4800", marginBottom: 4 } }, `⚑ ${f}`))
+            ),
+            React.createElement("div", { style: { marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" } },
+              React.createElement("button", { style: s.btn("primary"), onClick: () => shareKirtan(selectedKirtan.title, selectedKirtan.transliteration) }, "💬 Share"),
+              !flagging
+                ? React.createElement("button", { style: s.btn("ghost"), onClick: () => setFlagging(true) }, "⚑ Flag an issue")
+                : React.createElement("div", { style: { width: "100%", marginTop: 8 } },
+                    React.createElement("input", { style: { ...s.input, marginBottom: 8 }, placeholder: "Describe the issue...", value: flagNote, onChange: e => setFlagNote(e.target.value) }),
+                    React.createElement("div", { style: { display: "flex", gap: 10 } },
+                      React.createElement("button", { style: s.btn("primary"), onClick: handleFlag, disabled: saving }, "Submit Flag"),
+                      React.createElement("button", { style: s.btn("ghost"), onClick: () => { setFlagging(false); setFlagNote(""); } }, "Cancel")
+                    )
+                  )
+            )
+          )
+        ),
+
+        // ADMIN LOGIN
+        view === "admin" && !adminMode && React.createElement("div", { style: { maxWidth: 380, margin: "60px auto", padding: "0 16px" } },
+          React.createElement("div", { style: s.card },
+            React.createElement("h2", { style: { color: TEAL, marginBottom: 4 } }, "Admin Access"),
+            React.createElement("p", { style: { color: MUTED, fontSize: 14, marginBottom: 16 } }, "For Admin only."),
+            React.createElement("input", { style: { ...s.input, marginBottom: 10 }, type: "password", placeholder: "Password", value: adminPass, onChange: e => setAdminPass(e.target.value), onKeyDown: e => { if (e.key === "Enter") { adminPass === ADMIN_PASS ? (setAdminMode(true), setAdminError("")) : setAdminError("Incorrect password"); } } }),
+            adminError && React.createElement("div", { style: { color: "#c62828", fontSize: 13, marginBottom: 8 } }, adminError),
+            React.createElement("button", { style: s.btn("primary"), onClick: () => adminPass === ADMIN_PASS ? (setAdminMode(true), setAdminError("")) : setAdminError("Incorrect password") }, "Enter")
+          )
+        ),
+
+        // ADMIN DASHBOARD
+        view === "admin" && adminMode && React.createElement("div", { style: { maxWidth: 700, margin: "0 auto", padding: "26px 16px" } },
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 } },
+            React.createElement("h2", { style: { color: TEAL, margin: 0 } }, "Admin Dashboard"),
+            React.createElement("div", { style: { display: "flex", gap: 10 } },
+              React.createElement("button", { style: { ...s.btn("ghost"), fontSize: 12, padding: "6px 14px" }, onClick: loadLibrary }, "↺ Refresh"),
+              React.createElement("button", { style: s.btn("ghost"), onClick: () => setAdminMode(false) }, "Sign Out")
+            )
+          ),
+          // Stats
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 12, marginBottom: 22 } },
+            [
+              { label: "Total Kirtans", value: library.length },
+              { label: "Flagged", value: library.filter(k => parsedFlags(k).length > 0).length },
+              { label: "This Month", value: library.filter(k => k.date && k.date.slice(0, 7) === new Date().toISOString().slice(0, 7)).length }
+            ].map(stat => React.createElement("div", { key: stat.label, style: { background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "14px 18px", textAlign: "center" } },
+              React.createElement("div", { style: { fontSize: 26, fontWeight: 700, color: TEAL } }, stat.value),
+              React.createElement("div", { style: { fontSize: 12, color: MUTED } }, stat.label)
+            ))
+          ),
+          // Categories
+          React.createElement("div", { style: { ...s.card, marginBottom: 20 } },
+            React.createElement("div", { style: { fontWeight: 700, color: TEAL, marginBottom: 12 } }, "Manage Categories"),
+            React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
+              categories.map(c => React.createElement("span", { key: c, style: s.tag(GOLD) }, c))
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 10 } },
+              React.createElement("input", { style: { ...s.input, flex: 1 }, placeholder: "New category name...", value: newCategory, onChange: e => setNewCategory(e.target.value), onKeyDown: e => e.key === "Enter" && addCategory() }),
+              React.createElement("button", { style: { ...s.btn("primary"), whiteSpace: "nowrap" }, onClick: addCategory }, "Add")
+            )
+          ),
+          // Kirtan list
+          React.createElement("h3", { style: { color: TEAL, marginBottom: 12 } }, "All Kirtans"),
+          library.length === 0 && React.createElement("div", { style: { color: MUTED, fontSize: 14 } }, "No kirtans yet."),
+          library.map(k => React.createElement("div", { key: k.id, style: { ...s.card, marginBottom: 10 } },
+            editingKirtan && editingKirtan.id === k.id
+              ? React.createElement("div", null,
+                  React.createElement("div", { style: { marginBottom: 8 } },
+                    React.createElement("label", { style: { fontSize: 12, color: MUTED, display: "block", marginBottom: 4 } }, "Title"),
+                    React.createElement("input", { style: s.input, value: editingKirtan.title, onChange: e => setEditingKirtan(prev => ({ ...prev, title: e.target.value })) })
+                  ),
+                  React.createElement("div", { style: { marginBottom: 8 } },
+                    React.createElement("label", { style: { fontSize: 12, color: MUTED, display: "block", marginBottom: 4 } }, "Category"),
+                    React.createElement("select", { style: s.select, value: editingKirtan.category, onChange: e => setEditingKirtan(prev => ({ ...prev, category: e.target.value })) },
+                      categories.map(c => React.createElement("option", { key: c, value: c }, c))
+                    )
+                  ),
+                  React.createElement("div", { style: { marginBottom: 10 } },
+                    React.createElement("label", { style: { fontSize: 12, color: MUTED, display: "block", marginBottom: 4 } }, "Transliteration"),
+                    React.createElement("textarea", { style: { ...s.textarea, minHeight: 180 }, value: editingKirtan.transliteration, onChange: e => setEditingKirtan(prev => ({ ...prev, transliteration: e.target.value })) })
+                  ),
+                  saveError && React.createElement("div", { style: { color: "#c62828", fontSize: 13, marginBottom: 8 } }, saveError),
+                  React.createElement("div", { style: { display: "flex", gap: 10 } },
+                    React.createElement("button", { style: s.btn("primary"), onClick: saveEditedKirtan, disabled: saving }, saving ? "Saving..." : "Save Changes"),
+                    React.createElement("button", { style: s.btn("ghost"), onClick: () => setEditingKirtan(null) }, "Cancel")
+                  )
+                )
+              : React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 } },
+                  React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { fontWeight: 700, color: TEAL } }, k.title),
+                    React.createElement("div", { style: { fontSize: 12, color: MUTED } }, `${k.contributor} · ${k.date} · ${k.language} · ${k.category}`),
+                    parsedFlags(k).length > 0 && React.createElement("div", { style: { marginTop: 8 } },
+                      React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "#8b5e00", marginBottom: 4 } }, "Flags:"),
+                      parsedFlags(k).map((f, i) => React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6b4800", marginBottom: 4 } },
+                        React.createElement("span", null, `⚑ ${f}`),
+                        React.createElement("button", { style: { fontSize: 11, color: TEAL, background: "none", border: "none", cursor: "pointer", padding: 0 }, onClick: () => dismissFlag(k, i) }, "Dismiss")
+                      ))
+                    )
+                  ),
+                  React.createElement("div", { style: { display: "flex", gap: 8, flexShrink: 0 } },
+                    React.createElement("button", { style: { ...s.btn("ghost"), fontSize: 12, padding: "6px 12px" }, onClick: () => { setSelectedKirtan(k); setView("kirtan"); } }, "View"),
+                    React.createElement("button", { style: { ...s.btn("ghost"), fontSize: 12, padding: "6px 12px" }, onClick: () => setEditingKirtan({ ...k }) }, "Edit"),
+                    React.createElement("button", { style: { fontSize: 12, padding: "6px 12px", background: "#fdecea", color: "#c62828", border: "1px solid #f5c6c6", borderRadius: 8, cursor: "pointer", fontFamily: "Georgia,serif" }, onClick: () => removeKirtan(k.id) }, "Remove")
+                  )
+                )
+          ))
         ),
 
         // FOOTER
