@@ -200,6 +200,7 @@
       const [adminPass, setAdminPass] = React.useState("");
       const [adminError, setAdminError] = React.useState("");
       const [newCategory, setNewCategory] = React.useState("");
+      const [editingKirtan, setEditingKirtan] = React.useState(null);
 
       React.useEffect(() => { loadLibrary(); }, []);
 
@@ -259,7 +260,7 @@
             setSelectedKirtan(existing);
             setScanning(false);
             setView("scan");
-            setTimeout(() => setView("kirtan"), 2000);
+            setTimeout(() => setView("kirtan"), 4000);
             return;
           }
           setScanResult(parsed); setEditableText(parsed.transliteration || ""); setView("review");
@@ -317,6 +318,21 @@
         await fsDelete("kirtans", id);
         setLibrary(prev => prev.filter(k => k.id !== id));
         setView("library"); setSelectedKirtan(null);
+      }
+
+      async function saveEditedKirtan() {
+        if (!editingKirtan) return;
+        setSaving(true);
+        try {
+          await fsUpdate("kirtans", editingKirtan.id, {
+            title: editingKirtan.title,
+            transliteration: editingKirtan.transliteration,
+            category: editingKirtan.category
+          });
+          setLibrary(prev => prev.map(k => k.id === editingKirtan.id ? { ...k, ...editingKirtan } : k));
+          setEditingKirtan(null);
+        } catch (e) { setSaveError("Could not save edits. Please try again."); }
+        setSaving(false);
       }
 
       async function addCategory() {
@@ -453,7 +469,7 @@
                       React.createElement("button", { style: s.btn("primary"), onClick: handleAddToLibrary, disabled: addedSuccess || saving },
                         saving ? "Saving..." : addedSuccess ? "✓ Added!" : "Add to Library"
                       ),
-                      React.createElement("button", { style: s.btn("ghost"), onClick: () => setView("home") }, "Keep Private")
+                      React.createElement("button", { style: s.btn("ghost"), onClick: () => setView("home") }, "No, thanks")
                     )
                   )
                 )
@@ -584,23 +600,46 @@
           React.createElement("h3", { style: { color: TEAL, marginBottom: 12 } }, "All Kirtans"),
           library.length === 0 && React.createElement("div", { style: { color: MUTED, fontSize: 14 } }, "No kirtans yet."),
           library.map(k => React.createElement("div", { key: k.id, style: { ...s.card, marginBottom: 10 } },
-            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 } },
-              React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                React.createElement("div", { style: { fontWeight: 700, color: TEAL } }, k.title),
-                React.createElement("div", { style: { fontSize: 12, color: MUTED } }, `${k.contributor} · ${k.date} · ${k.language} · ${k.category}`),
-                parsedFlags(k).length > 0 && React.createElement("div", { style: { marginTop: 8 } },
-                  React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "#8b5e00", marginBottom: 4 } }, "Flags:"),
-                  parsedFlags(k).map((f, i) => React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6b4800", marginBottom: 4 } },
-                    React.createElement("span", null, `⚑ ${f}`),
-                    React.createElement("button", { style: { fontSize: 11, color: TEAL, background: "none", border: "none", cursor: "pointer", padding: 0 }, onClick: () => dismissFlag(k, i) }, "Dismiss")
-                  ))
+            editingKirtan && editingKirtan.id === k.id
+              ? React.createElement("div", null,
+                  React.createElement("div", { style: { marginBottom: 8 } },
+                    React.createElement("label", { style: { fontSize: 12, color: MUTED, display: "block", marginBottom: 4 } }, "Title"),
+                    React.createElement("input", { style: s.input, value: editingKirtan.title, onChange: e => setEditingKirtan(prev => ({ ...prev, title: e.target.value })) })
+                  ),
+                  React.createElement("div", { style: { marginBottom: 8 } },
+                    React.createElement("label", { style: { fontSize: 12, color: MUTED, display: "block", marginBottom: 4 } }, "Category"),
+                    React.createElement("select", { style: s.select, value: editingKirtan.category, onChange: e => setEditingKirtan(prev => ({ ...prev, category: e.target.value })) },
+                      categories.map(c => React.createElement("option", { key: c, value: c }, c))
+                    )
+                  ),
+                  React.createElement("div", { style: { marginBottom: 10 } },
+                    React.createElement("label", { style: { fontSize: 12, color: MUTED, display: "block", marginBottom: 4 } }, "Transliteration"),
+                    React.createElement("textarea", { style: { ...s.textarea, minHeight: 180 }, value: editingKirtan.transliteration, onChange: e => setEditingKirtan(prev => ({ ...prev, transliteration: e.target.value })) })
+                  ),
+                  saveError && React.createElement("div", { style: { color: "#c62828", fontSize: 13, marginBottom: 8 } }, saveError),
+                  React.createElement("div", { style: { display: "flex", gap: 10 } },
+                    React.createElement("button", { style: s.btn("primary"), onClick: saveEditedKirtan, disabled: saving }, saving ? "Saving..." : "Save Changes"),
+                    React.createElement("button", { style: s.btn("ghost"), onClick: () => setEditingKirtan(null) }, "Cancel")
+                  )
                 )
-              ),
-              React.createElement("div", { style: { display: "flex", gap: 8, flexShrink: 0 } },
-                React.createElement("button", { style: { ...s.btn("ghost"), fontSize: 12, padding: "6px 12px" }, onClick: () => { setSelectedKirtan(k); setView("kirtan"); } }, "View"),
-                React.createElement("button", { style: { fontSize: 12, padding: "6px 12px", background: "#fdecea", color: "#c62828", border: "1px solid #f5c6c6", borderRadius: 8, cursor: "pointer", fontFamily: "Georgia,serif" }, onClick: () => removeKirtan(k.id) }, "Remove")
-              )
-            )
+              : React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 } },
+                  React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { fontWeight: 700, color: TEAL } }, k.title),
+                    React.createElement("div", { style: { fontSize: 12, color: MUTED } }, `${k.contributor} · ${k.date} · ${k.language} · ${k.category}`),
+                    parsedFlags(k).length > 0 && React.createElement("div", { style: { marginTop: 8 } },
+                      React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "#8b5e00", marginBottom: 4 } }, "Flags:"),
+                      parsedFlags(k).map((f, i) => React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6b4800", marginBottom: 4 } },
+                        React.createElement("span", null, `⚑ ${f}`),
+                        React.createElement("button", { style: { fontSize: 11, color: TEAL, background: "none", border: "none", cursor: "pointer", padding: 0 }, onClick: () => dismissFlag(k, i) }, "Dismiss")
+                      ))
+                    )
+                  ),
+                  React.createElement("div", { style: { display: "flex", gap: 8, flexShrink: 0 } },
+                    React.createElement("button", { style: { ...s.btn("ghost"), fontSize: 12, padding: "6px 12px" }, onClick: () => { setSelectedKirtan(k); setView("kirtan"); } }, "View"),
+                    React.createElement("button", { style: { ...s.btn("ghost"), fontSize: 12, padding: "6px 12px" }, onClick: () => setEditingKirtan({ ...k }) }, "Edit"),
+                    React.createElement("button", { style: { fontSize: 12, padding: "6px 12px", background: "#fdecea", color: "#c62828", border: "1px solid #f5c6c6", borderRadius: 8, cursor: "pointer", fontFamily: "Georgia,serif" }, onClick: () => removeKirtan(k.id) }, "Remove")
+                  )
+                )
           ))
         ),
 
