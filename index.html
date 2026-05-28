@@ -371,6 +371,10 @@
         view === "scan" && React.createElement("div", { style: { maxWidth: 580, margin: "0 auto", padding: "26px 16px" } },
           React.createElement("h2", { style: { color: TEAL, marginBottom: 4 } }, "Scan a Kirtan"),
           React.createElement("p", { style: { color: MUTED, fontSize: 14, marginBottom: 18 } }, "Upload a photo or take one. We'll check the library first — if this kirtan already exists, we'll take you straight to it."),
+          matchFound && React.createElement("div", { style: { ...s.card, borderColor: TEAL, background: "#e8f5f2", marginBottom: 14 } },
+            React.createElement("div", { style: { color: TEAL, fontWeight: 700, marginBottom: 4 } }, "✓ Already in the library!"),
+            React.createElement("div", { style: { color: DARK, fontSize: 14 } }, `"${matchFound.title}" is already in the Kirtan Sangrah — taking you there now.`)
+          ),
           React.createElement("div", { style: s.card },
             React.createElement("div", { style: { border: `2px dashed ${BORDER}`, borderRadius: 12, padding: "28px 16px", textAlign: "center", background: ACCENT_BG, marginBottom: 16 } },
               uploadedImage
