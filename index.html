@@ -108,13 +108,22 @@
       React.useEffect(() => {
         if (!active) { setPct(0); return; }
         setPct(10);
-        const ts = [setTimeout(() => setPct(30), 800), setTimeout(() => setPct(55), 2500), setTimeout(() => setPct(75), 5000), setTimeout(() => setPct(88), 8000)];
+        const ts = [
+          setTimeout(() => setPct(30), 800),
+          setTimeout(() => setPct(55), 2500),
+          setTimeout(() => setPct(75), 5000),
+          setTimeout(() => setPct(88), 8000),
+          setTimeout(() => setPct(92), 12000),
+          setTimeout(() => setPct(95), 18000),
+          setTimeout(() => setPct(98), 25000),
+        ];
         return () => ts.forEach(clearTimeout);
       }, [active]);
       if (!active && pct === 0) return null;
+      const label = pct < 55 ? "Reading the kirtan..." : pct < 88 ? "Transliterating..." : "Almost there, finalising...";
       return React.createElement("div", { style: { margin: "16px 0 8px" } },
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, color: MUTED, marginBottom: 6 } },
-          React.createElement("span", null, "Reading & transliterating kirtan..."),
+          React.createElement("span", null, label),
           React.createElement("span", null, `${pct}%`)
         ),
         React.createElement("div", { style: { background: BORDER, borderRadius: 99, height: 6, overflow: "hidden" } },
@@ -245,7 +254,14 @@
           let parsed;
           try { parsed = JSON.parse(clean); } catch { throw new Error("Could not parse response"); }
           const existing = checkForMatch(parsed.title);
-          if (existing) { setMatchFound(existing); setSelectedKirtan(existing); setScanning(false); setView("kirtan"); return; }
+          if (existing) {
+            setMatchFound(existing);
+            setSelectedKirtan(existing);
+            setScanning(false);
+            setView("scan");
+            setTimeout(() => setView("kirtan"), 2000);
+            return;
+          }
           setScanResult(parsed); setEditableText(parsed.transliteration || ""); setView("review");
         } catch (err) { console.error("Scan error:", err); setScanError(err.message || "Unknown error"); setView("review"); }
         setScanning(false);
